@@ -1,0 +1,155 @@
+version: "3.9"
+
+services:
+  # ============================================
+  # 既存サービス: FreeSWITCH + mod_audio_stream
+  # ============================================
+  freeswitch:
+    build:
+      context: ./freeswitch
+      dockerfile: Dockerfile
+      args:
+        SIGNALWIRE_PAT: ${SIGNALWIRE_PAT:-}
+        FS_CHANNEL: ${FS_CHANNEL:-release}
+        FS_ACTION: ${FS_ACTION:-install}
+        FS_META_PACKAGE: ${FS_META_PACKAGE:-freeswitch-meta-all}
+    container_name: mindoo-freeswitch
+    restart: unless-stopped
+    environment:
+      EXTERNAL_SIP_IP: ${EXTERNAL_SIP_IP:-}
+      EXTERNAL_RTP_IP: ${EXTERNAL_RTP_IP:-}
+      AUDIO_WS_URL: ${AUDIO_WS_URL:-ws://voice-gateway:8080/ws}
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "5080:5080/udp"
+      - "5080:5080/tcp"
+      - "8021:8021/tcp"
+      - "20000-20100:20000-20100/udp"
+    volumes:
+      - ./freeswitch/dialplan:/etc/freeswitch/dialplan/default
+      - ./freeswitch/logs:/var/log/freeswitch
+      - freeswitch-recordings:/var/lib/freeswitch/recordings
+      - freeswitch-sounds:/usr/share/freeswitch/sounds
+    depends_on:
+      voice-gateway:
+        condition: service_healthy
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    networks:
+      - pbx-network
+
+  # ============================================
+  # 既存サービス: voice-gateway
+  # ============================================
+  voice-gateway:
+    build:
+      context: ./voice-gateway
+      dockerfile: Dockerfile
+    container_name: mindoo-voice-gateway
+    restart: unless-stopped
+    environment:
+      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
+      TRANSCRIBE_LANGUAGE_CODE: ${TRANSCRIBE_LANGUAGE_CODE:-ja-JP}
+      TRANSCRIBE_SAMPLE_RATE: ${TRANSCRIBE_SAMPLE_RATE:-16000}
+      POLLY_VOICE_ID: ${POLLY_VOICE_ID:-Takumi}
+      POLLY_SAMPLE_RATE: ${POLLY_SAMPLE_RATE:-8000}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      RASA_REST_ENDPOINT: ${RASA_REST_ENDPOINT:-http://host.docker.internal:5005/webhooks/rest/webhook}
+      AUDIO_QUEUE_MAX: ${AUDIO_QUEUE_MAX:-50}
+      BIND_HOST: ${BIND_HOST:-0.0.0.0}
+      BIND_PORT: ${BIND_PORT:-8080}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ${AWS_SHARED_DIR:-./aws}:/root/.aws:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - pbx-network
+
+  # ============================================
+  # 新規サービス: PostgreSQL (FusionPBX用)
+  # ============================================
+  fusionpbx-db:
+    image: postgres:15-alpine
+    container_name: fusionpbx-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${FUSIONPBX_DB_USER:-fusionpbx}
+      POSTGRES_PASSWORD: ${FUSIONPBX_DB_PASSWORD:-fusionpbx_secret_2024}
+      POSTGRES_DB: ${FUSIONPBX_DB_NAME:-fusionpbx}
+    volumes:
+      - fusionpbx-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${FUSIONPBX_DB_USER:-fusionpbx}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pbx-network
+
+  # ============================================
+  # 新規サービス: FusionPBX (Web GUI)
+  # ============================================
+  fusionpbx:
+    build:
+      context: ./fusionpbx-docker
+      dockerfile: Dockerfile
+    container_name: fusionpbx
+    restart: unless-stopped
+    environment:
+      # Database connection
+      DATABASE_HOST: fusionpbx-db
+      DATABASE_PORT: "5432"
+      DATABASE_USERNAME: ${FUSIONPBX_DB_USER:-fusionpbx}
+      DATABASE_PASSWORD: ${FUSIONPBX_DB_PASSWORD:-fusionpbx_secret_2024}
+      DATABASE_NAME: ${FUSIONPBX_DB_NAME:-fusionpbx}
+      # FreeSWITCH ESL connection
+      EVENT_SOCKET_HOST: freeswitch
+      EVENT_SOCKET_PORT: "8021"
+      EVENT_SOCKET_PASSWORD: ${ESL_PASSWORD:-ClueCon}
+      # Timezone
+      TZ: Asia/Tokyo
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - fusionpbx-config:/etc/fusionpbx
+      - freeswitch-recordings:/var/lib/freeswitch/recordings
+      - freeswitch-sounds:/usr/share/freeswitch/sounds
+    depends_on:
+      fusionpbx-db:
+        condition: service_healthy
+      freeswitch:
+        condition: service_started
+    networks:
+      - pbx-network
+
+# ============================================
+# ボリューム定義
+# ============================================
+volumes:
+  freeswitch-recordings:
+    driver: local
+  freeswitch-sounds:
+    driver: local
+  fusionpbx-db-data:
+    driver: local
+  fusionpbx-config:
+    driver: local
+
+# ============================================
+# ネットワーク定義
+# ============================================
+networks:
+  pbx-network:
+    driver: bridge
