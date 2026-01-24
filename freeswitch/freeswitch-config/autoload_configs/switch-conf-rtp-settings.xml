@@ -1,0 +1,28 @@
+<!--
+  FreeSWITCH RTPポート設定 (switch.conf.xml 用)
+  =============================================
+  ファイル: /etc/freeswitch/autoload_configs/switch.conf.xml
+  
+  以下のセクションを既存の switch.conf.xml 内の <settings> に追加してください。
+  
+  重要: ルーターのポートマッピング範囲と一致させること！
+  現在のマッピング: 20000-20100/UDP
+-->
+
+<!-- switch.conf.xml の <settings> セクション内に追加 -->
+<settings>
+  <!-- ==================== RTPポート範囲 ==================== -->
+  <!-- ルーターのポートフォワーディングと一致させる -->
+  <param name="rtp-start-port" value="20000"/>
+  <param name="rtp-end-port" value="20100"/>
+  
+  <!-- ==================== セッション制限 ==================== -->
+  <!-- 同時通話数制限 (RTPポート数に合わせて調整) -->
+  <!-- 100ポート ÷ 2 (双方向) = 最大50通話 -->
+  <param name="max-sessions" value="50"/>
+  <param name="sessions-per-second" value="10"/>
+  
+  <!-- ==================== タイムアウト設定 ==================== -->
+  <param name="rtp-timeout-sec" value="300"/>
+  <param name="rtp-hold-timeout-sec" value="1800"/>
+</settings>

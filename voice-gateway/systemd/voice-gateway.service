@@ -1,0 +1,21 @@
+[Unit]
+Description=Mindoo Voice Gateway (FastAPI) for FreeSWITCH mod_audio_stream
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/voice-gateway
+EnvironmentFile=/opt/voice-gateway/.env
+ExecStart=/opt/voice-gateway/venv/bin/uvicorn app.main:app --host ${BIND_HOST} --port ${BIND_PORT}
+Restart=always
+RestartSec=2
+
+# Hardening (P0 mild)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/voice-gateway
+
+[Install]
+WantedBy=multi-user.target

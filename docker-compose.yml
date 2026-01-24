@@ -29,6 +29,8 @@ services:
     volumes:
       - ./freeswitch/dialplan:/etc/freeswitch/dialplan/default
       - ./freeswitch/logs:/var/log/freeswitch
+      # FusionPBX と共有するディレクトリ
+      - freeswitch-config:/etc/freeswitch
       - freeswitch-recordings:/var/lib/freeswitch/recordings
       - freeswitch-sounds:/usr/share/freeswitch/sounds
     depends_on:
@@ -38,7 +40,7 @@ services:
       - 1.1.1.1
       - 8.8.8.8
     networks:
-      - pbx-network
+      - fusionpbx-net
 
   # ============================================
   # 既存サービス: voice-gateway
@@ -66,15 +68,15 @@ services:
       - "8080:8080"
     volumes:
       - ${AWS_SHARED_DIR:-./aws}:/root/.aws:ro
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
+    #healthcheck:
+    #  test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+    #  interval: 10s
+    #  timeout: 3s
+    #  retries: 10
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - pbx-network
+      - fusionpbx-net
 
   # ============================================
   # 新規サービス: PostgreSQL (FusionPBX用)
@@ -85,7 +87,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${FUSIONPBX_DB_USER:-fusionpbx}
-      POSTGRES_PASSWORD: ${FUSIONPBX_DB_PASSWORD:-fusionpbx_secret_2024}
+      POSTGRES_PASSWORD: ${FUSIONPBX_DB_PASSWORD:-fusionpbx_secret}
       POSTGRES_DB: ${FUSIONPBX_DB_NAME:-fusionpbx}
     volumes:
       - fusionpbx-db-data:/var/lib/postgresql/data
@@ -95,53 +97,70 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - pbx-network
+      - fusionpbx-net
 
   # ============================================
   # 新規サービス: FusionPBX (Web GUI)
   # ============================================
   fusionpbx:
     build:
-      context: ./fusionpbx-docker
+      context: .
       dockerfile: Dockerfile
+    #image: fusionpbx/fusionpbx:latest
     container_name: fusionpbx
     restart: unless-stopped
     environment:
-      # Database connection
+      # データベース接続
       DATABASE_HOST: fusionpbx-db
-      DATABASE_PORT: "5432"
+      DATABASE_PORT: 5432
       DATABASE_USERNAME: ${FUSIONPBX_DB_USER:-fusionpbx}
-      DATABASE_PASSWORD: ${FUSIONPBX_DB_PASSWORD:-fusionpbx_secret_2024}
+      DATABASE_PASSWORD: ${FUSIONPBX_DB_PASSWORD:-fusionpbx_secret}
       DATABASE_NAME: ${FUSIONPBX_DB_NAME:-fusionpbx}
-      # FreeSWITCH ESL connection
+      
+      # FreeSWITCH ESL 接続
       EVENT_SOCKET_HOST: freeswitch
-      EVENT_SOCKET_PORT: "8021"
+      EVENT_SOCKET_PORT: 8021
       EVENT_SOCKET_PASSWORD: ${ESL_PASSWORD:-ClueCon}
-      # Timezone
-      TZ: Asia/Tokyo
+      
+      # ドメイン設定
+      DOMAIN_NAME: ${FUSIONPBX_DOMAIN:-localhost}
     ports:
-      - "80:80"
-      - "443:443"
+      # Web GUI (HTTP/HTTPS)
+      - "8081:80"
+      - "8443:443"
     volumes:
-      - fusionpbx-config:/etc/fusionpbx
+      # FreeSWITCH 設定を共有 (読み取り専用で安全に)
+      - freeswitch-config:/etc/freeswitch:ro
       - freeswitch-recordings:/var/lib/freeswitch/recordings
       - freeswitch-sounds:/usr/share/freeswitch/sounds
+      # FusionPBX 設定
+      - fusionpbx-config:/var/www/fusionpbx
     depends_on:
       fusionpbx-db:
         condition: service_healthy
       freeswitch:
         condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/core/install/install.php"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
-      - pbx-network
+      - fusionpbx-net
 
 # ============================================
 # ボリューム定義
 # ============================================
 volumes:
+  # FreeSWITCH 関連
+  freeswitch-config:
+    driver: local
   freeswitch-recordings:
     driver: local
   freeswitch-sounds:
     driver: local
+  
+  # FusionPBX 関連
   fusionpbx-db-data:
     driver: local
   fusionpbx-config:
@@ -151,5 +170,5 @@ volumes:
 # ネットワーク定義
 # ============================================
 networks:
-  pbx-network:
+  fusionpbx-net:
     driver: bridge

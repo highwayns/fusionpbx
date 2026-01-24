@@ -1,0 +1,36 @@
+version: "3.9"
+
+# 用法（示例）：
+#   cd <Step2 freeswitch 目录>
+#   docker compose -f docker-compose.yml -f <本目录>/docker-compose.compat-step2.yml up -d --build
+#
+# 说明：这个文件只提供“真实 voice-gateway”服务定义，service 名与 Step2 中一致（voice-gateway）。
+
+services:
+  voice-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mindoo-voice-gateway
+    restart: unless-stopped
+    environment:
+      AWS_REGION: ${AWS_REGION:-ap-northeast-1}
+      TRANSCRIBE_LANGUAGE_CODE: ${TRANSCRIBE_LANGUAGE_CODE:-ja-JP}
+      TRANSCRIBE_SAMPLE_RATE: ${TRANSCRIBE_SAMPLE_RATE:-16000}
+      POLLY_VOICE_ID: ${POLLY_VOICE_ID:-Takumi}
+      POLLY_SAMPLE_RATE: ${POLLY_SAMPLE_RATE:-8000}
+      # Step2 中 freeswitch 默认会连接 ws://voice-gateway:8080/ws
+      RASA_REST_ENDPOINT: ${RASA_REST_ENDPOINT:-http://rasa:5005/webhooks/rest/webhook}
+      AUDIO_QUEUE_MAX: ${AUDIO_QUEUE_MAX:-50}
+      BIND_HOST: ${BIND_HOST:-0.0.0.0}
+      BIND_PORT: ${BIND_PORT:-8080}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ${AWS_SHARED_DIR:-./aws}:/root/.aws:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10

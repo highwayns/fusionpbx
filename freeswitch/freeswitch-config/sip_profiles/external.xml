@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  External SIP プロファイル (NAT対応版)
+  =====================================
+  ファイル: /etc/freeswitch/sip_profiles/external.xml
+  
+  重要: この設定は家用宽带 + NAT環境向けに最適化されています。
+  
+  設定後コマンド:
+    fs_cli -x "sofia profile external restart"
+    fs_cli -x "sofia status profile external"
+-->
+<profile name="external">
+  
+  <!-- ==================== ゲートウェイ読み込み ==================== -->
+  <gateways>
+    <X-PRE-PROCESS cmd="include" data="external/*.xml"/>
+  </gateways>
+  
+  <!-- ==================== ドメイン設定 ==================== -->
+  <domains>
+    <domain name="all" alias="false" parse="true"/>
+  </domains>
+  
+  <!-- ==================== 基本設定 ==================== -->
+  <settings>
+    <!-- ========== ネットワーク設定 ========== -->
+    <!-- 内部リスニングIP (コンテナ内/ローカル) -->
+    <param name="sip-ip" value="$${local_ip_v4}"/>
+    <param name="rtp-ip" value="$${local_ip_v4}"/>
+    
+    <!-- SIPポート (外部用) -->
+    <param name="sip-port" value="5080"/>
+    
+    <!-- ========== NAT/公网IP設定 ========== -->
+    <!-- 公网IPを明示的に指定 (vars.xml から読み込み) -->
+    <param name="ext-sip-ip" value="$${external_sip_ip}"/>
+    <param name="ext-rtp-ip" value="$${external_rtp_ip}"/>
+    
+    <!-- NAT検出を有効化 -->
+    <param name="aggressive-nat-detection" value="true"/>
+    
+    <!-- NAT関連フラグ -->
+    <param name="NDLB-force-rport" value="true"/>
+    <param name="NDLB-received-in-nat-reg-contact" value="true"/>
+    <param name="NDLB-broken-auth-hash" value="true"/>
+    
+    <!-- ========== 認証設定 ========== -->
+    <!-- 外部プロファイルは通常認証なし (ACLで制御) -->
+    <param name="auth-calls" value="false"/>
+    
+    <!-- ACL (オプション: SignalWire IPのみ許可) -->
+    <!-- <param name="apply-inbound-acl" value="signalwire"/> -->
+    
+    <!-- ========== コンテキスト ========== -->
+    <!-- 着信はpublicコンテキストで処理 -->
+    <param name="context" value="public"/>
+    
+    <!-- ========== コーデック設定 ========== -->
+    <param name="inbound-codec-prefs" value="$${global_codec_prefs}"/>
+    <param name="outbound-codec-prefs" value="$${outbound_codec_prefs}"/>
+    <param name="inbound-codec-negotiation" value="generous"/>
+    
+    <!-- ========== DTMF設定 ========== -->
+    <param name="dtmf-duration" value="2000"/>
+    <param name="rfc2833-pt" value="101"/>
+    <param name="dtmf-type" value="rfc2833"/>
+    
+    <!-- ========== タイムアウト設定 ========== -->
+    <param name="rtp-timeout-sec" value="300"/>
+    <param name="rtp-hold-timeout-sec" value="1800"/>
+    
+    <!-- ========== メディア設定 ========== -->
+    <param name="inbound-late-negotiation" value="true"/>
+    <param name="inbound-zrtp-passthru" value="false"/>
+    
+    <!-- ========== TLS/SRTP (後で有効化) ========== -->
+    <!-- 
+    <param name="tls" value="true"/>
+    <param name="tls-bind-params" value="transport=tls"/>
+    <param name="tls-sip-port" value="5081"/>
+    <param name="tls-cert-dir" value="/etc/freeswitch/tls/"/>
+    -->
+    
+  </settings>
+</profile>

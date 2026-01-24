@@ -1,0 +1,20 @@
+<include>
+  <extension name="ai_voicebot_9000">
+    <condition field="destination_number" expression="^9000$">
+      <action application="set" data="STREAM_SAMPLE_RATE=16000"/>
+      <action application="set" data="api_on_answer=uuid_audio_stream ${uuid} start ws://voice-gateway:8080/ws mono 16k"/>
+      <action application="answer"/>
+      <action application="park"/>
+
+      <!--action application="answer"/>
+      <action application="set" data="call_uuid=${uuid}"/-->
+
+      <!-- 启动音频流：上行给 ASR 用 16k mono；metadata 携带 call_uuid -->
+      <!--action application="api"
+              data="uuid_audio_stream ${uuid} start ws://voice-gateway:8080/ws mono 16k {&quot;call_uuid&quot;:&quot;${uuid}&quot;,&quot;lang&quot;:&quot;ja-JP&quot;}"/-->
+
+      <!-- 保持通话 -->
+      <!--action application="park"/-->
+    </condition>
+  </extension>
+</include>

@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  音声ボット入口 (9000) - uuid_audio_stream 連携
+  ================================================
+  ファイル: /etc/freeswitch/dialplan/default/09_voice_bot.xml
+  
+  動作フロー:
+    1. 9000 への呼を受信
+    2. uuid_audio_stream で voice-gateway (WebSocket) へ音声ストリーム
+    3. voice-gateway: ASR → Rasa → TTS → 音声返却
+  
+  前提条件:
+    - mod_audio_stream がロード済み
+    - voice-gateway が ws://voice-gateway:8080/ws で稼働中
+  
+  確認コマンド:
+    fs_cli -x "show application uuid_audio_stream"
+    fs_cli -x "show modules mod_audio_stream"
+-->
+<include>
+  <context name="default">
+    
+    <!-- ==================== 音声ボット (9000) ==================== -->
+    <extension name="voice-bot-9000">
+      <condition field="destination_number" expression="^9000$">
+        <!-- ログ出力 -->
+        <action application="log" data="INFO [VoiceBot] Session started: ${uuid}"/>
+        
+        <!-- 応答 (まだ接続されていない場合) -->
+        <action application="answer"/>
+        
+        <!-- チャネル変数設定 -->
+        <action application="set" data="RECORD_STEREO=true"/>
+        <action application="set" data="RECORD_MIN_SEC=0"/>
+        
+        <!-- コーデック固定 (オプション: voice-gateway対応形式) -->
+        <!-- <action application="set" data="read_codec=L16"/> -->
+        <!-- <action application="set" data="write_codec=L16"/> -->
+        
+        <!-- 通話録音 (デバッグ用、オプション) -->
+        <!-- <action application="record_session" data="/var/log/freeswitch/recordings/${uuid}.wav"/> -->
+        
+        <!-- =============================================== -->
+        <!-- uuid_audio_stream で voice-gateway に接続       -->
+        <!-- =============================================== -->
+        <!-- 
+          書式: uuid_audio_stream <uuid> start <ws_url> [options]
+          
+          voice-gateway WebSocket エンドポイント:
+            ws://voice-gateway:8080/ws
+          
+          注意: uuid_audio_stream はバックグラウンドで実行され、
+          park() で通話を保持する必要がある
+        -->
+        
+        <!-- WebSocket URL を変数に設定 -->
+        <action application="set" data="voice_gateway_ws=ws://voice-gateway:8080/ws"/>
+        
+        <!-- uuid_audio_stream 開始 (インライン方式) -->
+        <action application="export" data="uuid=${uuid}"/>
+        
+        <!-- 音声ストリーム開始 -->
+        <action application="socket" data="127.0.0.1:8021 async full"/>
+        
+        <!-- または直接 uuid_audio_stream API呼び出し -->
+        <!-- 
+        <action application="set" data="api_result=${uuid_audio_stream(${uuid} start ${voice_gateway_ws})}"/>
+        -->
+        
+        <!-- 通話を保持 (ストリーミング中) -->
+        <action application="park"/>
+        
+      </condition>
+    </extension>
+    
+    <!-- ==================== 人工オペレーター (1000) ==================== -->
+    <extension name="operator-1000">
+      <condition field="destination_number" expression="^1000$">
+        <action application="log" data="INFO [Operator] Transferring to human operator"/>
+        <action application="answer"/>
+        
+        <!-- ここに人工オペレーターへのブリッジを追加 -->
+        <!-- 例: SIPフォンへ転送 -->
+        <!-- <action application="bridge" data="user/1000@${domain_name}"/> -->
+        
+        <!-- または保留音楽 + キュー -->
+        <action application="playback" data="local_stream://moh"/>
+        <action application="park"/>
+      </condition>
+    </extension>
+    
+    <!-- ==================== AI → 人工 切替 ==================== -->
+    <extension name="transfer-to-human">
+      <condition field="destination_number" expression="^8888$">
+        <action application="log" data="INFO [Transfer] AI to Human handoff requested"/>
+        
+        <!-- audio_stream 停止 -->
+        <action application="set" data="api_result=${uuid_audio_stream(${uuid} stop)}"/>
+        
+        <!-- 人工オペレーターへ転送 -->
+        <action application="transfer" data="1000 XML default"/>
+      </condition>
+    </extension>
+    
+  </context>
+</include>

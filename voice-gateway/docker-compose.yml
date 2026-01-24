@@ -1,0 +1,72 @@
+# Voice Gateway Docker Compose
+# v2.0.0
+
+version: '3.8'
+
+services:
+  # ============================================
+  # Voice Gateway
+  # ============================================
+  voice-gateway:
+    build: .
+    container_name: voice-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8080
+      - AWS_REGION=${AWS_REGION:-ap-northeast-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - TRANSCRIBE_LANGUAGE_CODE=${TRANSCRIBE_LANGUAGE_CODE:-ja-JP}
+      - TRANSCRIBE_SAMPLE_RATE=${TRANSCRIBE_SAMPLE_RATE:-16000}
+      - POLLY_VOICE_ID=${POLLY_VOICE_ID:-Takumi}
+      - POLLY_SAMPLE_RATE=${POLLY_SAMPLE_RATE:-8000}
+      - POLLY_ENGINE=${POLLY_ENGINE:-neural}
+      - RASA_URL=http://rasa:5005
+      - RASA_REST_ENDPOINT=http://rasa:5005/webhooks/rest/webhook
+      - DIFY_API_URL=http://dify-api:5001/v1
+      - DIFY_API_KEY=${DIFY_API_KEY}
+      - FREESWITCH_HOST=freeswitch
+      - FREESWITCH_PORT=8021
+      - FREESWITCH_PASSWORD=${FREESWITCH_PASSWORD:-ClueCon}
+    depends_on:
+      - rasa
+    networks:
+      - callcenter-net
+    restart: unless-stopped
+
+  # ============================================
+  # Rasa NLU
+  # ============================================
+  rasa:
+    image: rasa/rasa:3.6.0
+    container_name: rasa
+    ports:
+      - "5005:5005"
+    volumes:
+      - ./rasa:/app
+    command: run --enable-api --cors "*"
+    depends_on:
+      - rasa-actions
+    networks:
+      - callcenter-net
+    restart: unless-stopped
+
+  rasa-actions:
+    image: rasa/rasa-sdk:3.6.0
+    container_name: rasa-actions
+    ports:
+      - "5055:5055"
+    volumes:
+      - ./rasa/actions:/app/actions
+    environment:
+      - DIFY_API_URL=http://dify-api:5001/v1
+      - DIFY_API_KEY=${DIFY_API_KEY}
+    networks:
+      - callcenter-net
+    restart: unless-stopped
+
+networks:
+  callcenter-net:
+    driver: bridge

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignalWire DID → 音声ボット (9000) ルーティング
+  =================================================
+  ファイル: /etc/freeswitch/dialplan/public/00_signalwire_did_to_9000.xml
+  
+  動作:
+    1. SignalWire経由でDID (+12083615909) への着信を受ける
+    2. 呼を応答し、default コンテキストの 9000 へ転送
+    3. 9000 でuuid_audio_stream → voice-gateway → Rasa → TTS
+  
+  設定後コマンド:
+    fs_cli -x "reloadxml"
+    fs_cli -x "show dialplan public"
+-->
+<include>
+  <context name="public">
+    
+    <!-- ==================== SignalWire DID ルーティング ==================== -->
+    <extension name="signalwire-DID-to-9000">
+      <condition field="destination_number" expression="^\+?1?2083615909$">
+        <!-- ログ出力 (デバッグ用) -->
+        <action application="log" data="INFO [SignalWire] Incoming call to DID: ${destination_number} from ${caller_id_number}"/>
+        
+        <!-- 呼を応答 -->
+        <action application="answer"/>
+        
+        <!-- 短い遅延 (音声品質安定化) -->
+        <action application="sleep" data="500"/>
+        
+        <!-- default コンテキストの 9000 (音声ボット) へ転送 -->
+        <action application="transfer" data="9000 XML default"/>
+      </condition>
+    </extension>
+    
+    <!-- ==================== 未知番号のデフォルト処理 ==================== -->
+    <extension name="unmatched-public">
+      <condition field="destination_number" expression="^(.*)$">
+        <action application="log" data="WARNING [Public] Unmatched call to: ${destination_number} from ${caller_id_number}"/>
+        
+        <!-- オプション: 拒否音声を再生してハングアップ -->
+        <!-- <action application="playback" data="misc/sorry.wav"/> -->
+        
+        <action application="hangup" data="CALL_REJECTED"/>
+      </condition>
+    </extension>
+    
+  </context>
+</include>

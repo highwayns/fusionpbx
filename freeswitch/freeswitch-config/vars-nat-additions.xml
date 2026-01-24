@@ -1,0 +1,37 @@
+<!--
+  FreeSWITCH NAT設定 (vars.xml に追加)
+  =====================================
+  ファイル: /etc/freeswitch/vars.xml
+  
+  既存の vars.xml に以下を追加、または該当行を置換してください。
+  
+  重要: 家用宽带+ルーターNAT環境では、公网IPを明示的に設定する必要があります。
+  公网IPが変わった場合は更新してください。
+-->
+
+<!-- ==================== NAT/公网IP設定 ==================== -->
+<!-- 公网IPアドレス: 126.19.122.165 -->
+<!-- 
+  注意: 動的IPの場合はSTUN使用を検討
+  例: <X-PRE-PROCESS cmd="stun-set" data="external_sip_ip=stun:stun.freeswitch.org"/>
+-->
+<X-PRE-PROCESS cmd="set" data="external_sip_ip=126.19.122.165"/>
+<X-PRE-PROCESS cmd="set" data="external_rtp_ip=126.19.122.165"/>
+
+<!-- ==================== RTPポート範囲 ==================== -->
+<!-- ルーターのポートマッピングと一致させる: 20000-20100 -->
+<X-PRE-PROCESS cmd="set" data="rtp-start-port=20000"/>
+<X-PRE-PROCESS cmd="set" data="rtp-end-port=20100"/>
+
+<!-- ==================== コーデック設定 ==================== -->
+<!-- SignalWireと互換性のあるコーデック -->
+<X-PRE-PROCESS cmd="set" data="global_codec_prefs=OPUS,G722,PCMU,PCMA,G729"/>
+<X-PRE-PROCESS cmd="set" data="outbound_codec_prefs=OPUS,G722,PCMU,PCMA"/>
+
+<!-- ==================== タイムアウト設定 ==================== -->
+<!-- NAT環境でのセッション維持 -->
+<X-PRE-PROCESS cmd="set" data="default_session_timeout=1800"/>
+
+<!-- ==================== ドメイン設定 (参考) ==================== -->
+<!-- 内部ドメイン名 -->
+<!-- <X-PRE-PROCESS cmd="set" data="domain=freeswitch.local"/> -->

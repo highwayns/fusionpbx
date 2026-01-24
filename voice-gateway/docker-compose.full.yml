@@ -1,0 +1,185 @@
+# Voice Gateway Full Stack Docker Compose
+# v2.0.0
+# 包含: Voice Gateway, FreeSWITCH, Rasa, Dify, Mindoo UI
+
+version: '3.8'
+
+services:
+  # ============================================
+  # FreeSWITCH (SIP交換機)
+  # ============================================
+  freeswitch:
+    image: signalwire/freeswitch:latest
+    container_name: freeswitch
+    ports:
+      - "5060:5060/udp"        # SIP UDP
+      - "5060:5060/tcp"        # SIP TCP
+      - "5061:5061/tcp"        # SIP TLS
+      - "8021:8021/tcp"        # ESL
+      - "16384-32768:16384-32768/udp"  # RTP
+    volumes:
+      - ./freeswitch/conf:/etc/freeswitch
+      - ./freeswitch/sounds:/usr/share/freeswitch/sounds
+      - ./freeswitch/tls:/etc/freeswitch/tls
+    environment:
+      - FREESWITCH_DOMAIN=${FREESWITCH_DOMAIN:-freeswitch}
+    networks:
+      - callcenter-net
+    restart: unless-stopped
+
+  # ============================================
+  # Voice Gateway (モード管理 + STT/TTS)
+  # ============================================
+  voice-gateway:
+    build: .
+    container_name: voice-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8080
+      - AWS_REGION=${AWS_REGION:-ap-northeast-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - TRANSCRIBE_LANGUAGE_CODE=${TRANSCRIBE_LANGUAGE_CODE:-ja-JP}
+      - TRANSCRIBE_SAMPLE_RATE=${TRANSCRIBE_SAMPLE_RATE:-16000}
+      - POLLY_VOICE_ID=${POLLY_VOICE_ID:-Takumi}
+      - POLLY_SAMPLE_RATE=${POLLY_SAMPLE_RATE:-8000}
+      - POLLY_ENGINE=${POLLY_ENGINE:-neural}
+      - RASA_URL=http://rasa:5005
+      - RASA_REST_ENDPOINT=http://rasa:5005/webhooks/rest/webhook
+      - DIFY_API_URL=http://dify-api:5001/v1
+      - DIFY_API_KEY=${DIFY_API_KEY}
+      - FREESWITCH_HOST=freeswitch
+      - FREESWITCH_PORT=8021
+      - FREESWITCH_PASSWORD=${FREESWITCH_PASSWORD:-ClueCon}
+      - FREESWITCH_DOMAIN=${FREESWITCH_DOMAIN:-freeswitch}
+    depends_on:
+      - freeswitch
+      - rasa
+    networks:
+      - callcenter-net
+    restart: unless-stopped
+
+  # ============================================
+  # Rasa NLU (テキスト処理)
+  # ============================================
+  rasa:
+    image: rasa/rasa:3.6.0
+    container_name: rasa
+    ports:
+      - "5005:5005"
+    volumes:
+      - ./rasa:/app
+    command: run --enable-api --cors "*"
+    depends_on:
+      - rasa-actions
+    networks:
+      - callcenter-net
+    restart: unless-stopped
+
+  rasa-actions:
+    image: rasa/rasa-sdk:3.6.0
+    container_name: rasa-actions
+    ports:
+      - "5055:5055"
+    volumes:
+      - ./rasa/actions:/app/actions
+    environment:
+      - DIFY_API_URL=http://dify-api:5001/v1
+      - DIFY_API_KEY=${DIFY_API_KEY}
+    networks:
+      - callcenter-net
+    restart: unless-stopped
+
+  # ============================================
+  # Dify (LLM + 知識庫)
+  # ============================================
+  dify-api:
+    image: langgenius/dify-api:latest
+    container_name: dify-api
+    ports:
+      - "5001:5001"
+    environment:
+      - MODE=api
+      - SECRET_KEY=${DIFY_SECRET_KEY:-your-secret-key}
+      - DB_USERNAME=postgres
+      - DB_PASSWORD=${DIFY_DB_PASSWORD:-difypassword}
+      - DB_HOST=dify-db
+      - DB_PORT=5432
+      - DB_DATABASE=dify
+      - REDIS_HOST=dify-redis
+      - REDIS_PORT=6379
+      - STORAGE_TYPE=local
+      - STORAGE_LOCAL_PATH=/app/storage
+    volumes:
+      - dify-storage:/app/storage
+    depends_on:
+      - dify-db
+      - dify-redis
+    networks:
+      - callcenter-net
+    restart: unless-stopped
+
+  dify-web:
+    image: langgenius/dify-web:latest
+    container_name: dify-web
+    ports:
+      - "3000:3000"
+    environment:
+      - CONSOLE_API_URL=http://dify-api:5001
+      - APP_API_URL=http://dify-api:5001
+    depends_on:
+      - dify-api
+    networks:
+      - callcenter-net
+    restart: unless-stopped
+
+  dify-db:
+    image: postgres:15
+    container_name: dify-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${DIFY_DB_PASSWORD:-difypassword}
+      - POSTGRES_DB=dify
+    volumes:
+      - dify-db-data:/var/lib/postgresql/data
+    networks:
+      - callcenter-net
+    restart: unless-stopped
+
+  dify-redis:
+    image: redis:7
+    container_name: dify-redis
+    volumes:
+      - dify-redis-data:/data
+    networks:
+      - callcenter-net
+    restart: unless-stopped
+
+  # ============================================
+  # Mindoo UI (管理画面)
+  # ============================================
+  mindoo-ui:
+    build: ./mindoo-ui
+    container_name: mindoo-ui
+    ports:
+      - "80:80"
+    environment:
+      - VOICE_GATEWAY_URL=http://voice-gateway:8080
+      - RASA_URL=http://rasa:5005
+    depends_on:
+      - voice-gateway
+      - rasa
+    networks:
+      - callcenter-net
+    restart: unless-stopped
+
+volumes:
+  dify-storage:
+  dify-db-data:
+  dify-redis-data:
+
+networks:
+  callcenter-net:
+    driver: bridge

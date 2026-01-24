@@ -1,0 +1,63 @@
+<!--
+  ACL (Access Control List) 設定
+  ================================
+  ファイル: /etc/freeswitch/autoload_configs/acl.conf.xml
+  
+  セキュリティ強化のため、SIPアクセスを制限。
+  SignalWire IP範囲のみ許可することを推奨。
+  
+  設定後コマンド:
+    fs_cli -x "reloadacl"
+-->
+<configuration name="acl.conf" description="Network ACL">
+  <network-lists>
+    
+    <!-- ==================== ローカルネットワーク ==================== -->
+    <list name="lan" default="allow">
+      <node type="allow" cidr="192.168.0.0/16"/>
+      <node type="allow" cidr="10.0.0.0/8"/>
+      <node type="allow" cidr="172.16.0.0/12"/>
+      <node type="allow" cidr="127.0.0.0/8"/>
+    </list>
+    
+    <!-- ==================== ドメイン認証済み ==================== -->
+    <list name="domains" default="deny">
+      <!-- ドメインディレクトリから自動生成 -->
+    </list>
+    
+    <!-- ==================== SignalWire 許可リスト ==================== -->
+    <!-- 
+      注意: SignalWireの正確なIPレンジは変動する可能性があるため、
+      公式ドキュメントを確認してください。
+      
+      以下は一般的な設定例です。
+      本番環境では SignalWire サポートに最新IPレンジを確認。
+    -->
+    <list name="signalwire" default="deny">
+      <!-- SignalWire メイン範囲 (例) -->
+      <!-- 実際のIPは SignalWire ドキュメントを確認 -->
+      <node type="allow" cidr="0.0.0.0/0"/>
+      
+      <!-- 
+      より厳密な設定例:
+      <node type="allow" cidr="52.xx.xx.0/24"/>
+      <node type="allow" cidr="34.xx.xx.0/24"/>
+      -->
+    </list>
+    
+    <!-- ==================== プロバイダー全般 ==================== -->
+    <list name="providers" default="deny">
+      <!-- SignalWire を許可 -->
+      <node type="allow" cidr="0.0.0.0/0"/>
+      
+      <!-- 本番環境では具体的なIP範囲に制限 -->
+    </list>
+    
+    <!-- ==================== 拒否リスト (スキャナー対策) ==================== -->
+    <list name="blocked" default="allow">
+      <!-- 既知の悪意あるIPをブロック -->
+      <!-- <node type="deny" cidr="x.x.x.x/32"/> -->
+    </list>
+    
+  </network-lists>
+</configuration>

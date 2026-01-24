@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SignalWire SIP Gateway Configuration
+  =====================================
+  ファイル: /etc/freeswitch/sip_profiles/external/signalwire.xml
+  
+  設定後コマンド:
+    fs_cli -x "sofia profile external restart"
+    fs_cli -x "sofia status gateway signalwire"
+  
+  期待状態: REGED (登録完了)
+-->
+<include>
+  <gateway name="signalwire">
+    <!-- 認証 -->
+    <param name="username" value="tei952"/>
+    <param name="password" value="Zjhuen1915"/>
+    <param name="realm" value="highwayns-13dced887019.sip.signalwire.com"/>
+    
+    <!-- UDP接続 -->
+    <param name="proxy" value="highwayns-13dced887019.sip.signalwire.com"/>
+    <param name="register-transport" value="udp"/>
+    <param name="register" value="true"/>
+    
+    <!-- タイミング -->
+    <param name="expire-seconds" value="300"/>
+    <param name="retry-seconds" value="30"/>
+    <param name="ping" value="25"/>
+    
+    <!-- Fromヘッダーをユーザー名に統一 -->
+    <param name="from-user" value="tei952"/>
+    <param name="from-domain" value="highwayns-13dced887019.sip.signalwire.com"/>
+    <param name="extension" value="tei952"/>
+    
+    <!-- コンテキスト -->
+    <param name="context" value="public"/>
+  </gateway>
+</include>
