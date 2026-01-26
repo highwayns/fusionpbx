@@ -1,0 +1,302 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'FusionPBX EC2 Instance with Docker for VoIP deployment'
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name
+
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+      - t3.large
+      - t3.xlarge
+    Description: EC2 instance type
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of existing EC2 key pair for SSH access
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID from network stack
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public Subnet ID from network stack
+
+  SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security Group ID from network stack
+
+  RootVolumeSize:
+    Type: Number
+    Default: 30
+    MinValue: 20
+    MaxValue: 100
+    Description: Root EBS volume size in GB
+
+  DataVolumeSize:
+    Type: Number
+    Default: 50
+    MinValue: 20
+    MaxValue: 500
+    Description: Data EBS volume size in GB for recordings
+
+Mappings:
+  RegionAMI:
+    ap-northeast-1:
+      # Amazon Linux 2023 AMI
+      AMI: ami-0d52744d6551d851e
+    ap-northeast-3:
+      AMI: ami-0c8e5a0b1f3a0c4c1
+    us-east-1:
+      AMI: ami-0c55b159cbfafe1f0
+    us-west-2:
+      AMI: ami-0892d3c7ee96c0bf7
+    eu-west-1:
+      AMI: ami-0d71ea30463e0ff8d
+
+Resources:
+  # IAM Role for EC2
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${EnvironmentName}-fusionpbx-ec2-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: FusionPBXPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Secrets Manager access
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                Resource: !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${EnvironmentName}/fusionpbx/*'
+              # CloudWatch Logs
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/fusionpbx/*'
+              # AWS Transcribe for voice-gateway
+              - Effect: Allow
+                Action:
+                  - transcribe:StartStreamTranscription
+                  - transcribe:StartStreamTranscriptionWebSocket
+                Resource: '*'
+              # AWS Polly for voice-gateway
+              - Effect: Allow
+                Action:
+                  - polly:SynthesizeSpeech
+                  - polly:DescribeVoices
+                Resource: '*'
+              # S3 for recordings backup (optional)
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${EnvironmentName}-fusionpbx-recordings/*'
+                  - !Sub 'arn:aws:s3:::${EnvironmentName}-fusionpbx-recordings'
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${EnvironmentName}-fusionpbx-instance-profile'
+      Roles:
+        - !Ref EC2Role
+
+  # Elastic IP
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-fusionpbx-eip'
+
+  # EC2 Instance
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !FindInMap [RegionAMI, !Ref 'AWS::Region', AMI]
+      KeyName: !Ref KeyPairName
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: '0'
+          GroupSet:
+            - !Ref SecurityGroupId
+          SubnetId: !Ref SubnetId
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref RootVolumeSize
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+        - DeviceName: /dev/xvdf
+          Ebs:
+            VolumeSize: !Ref DataVolumeSize
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: false
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+
+          echo "=== FusionPBX EC2 Setup Started ==="
+
+          # Update system
+          yum update -y
+
+          # Install Docker
+          yum install -y docker
+          systemctl enable docker
+          systemctl start docker
+
+          # Add ec2-user to docker group
+          usermod -aG docker ec2-user
+
+          # Install Docker Compose v2
+          mkdir -p /usr/local/lib/docker/cli-plugins
+          curl -SL https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-linux-x86_64 \
+            -o /usr/local/lib/docker/cli-plugins/docker-compose
+          chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+          ln -sf /usr/local/lib/docker/cli-plugins/docker-compose /usr/local/bin/docker-compose
+
+          # Install git
+          yum install -y git
+
+          # Format and mount data volume for recordings
+          mkfs.xfs /dev/xvdf || echo "Filesystem already exists"
+          mkdir -p /data/fusionpbx
+          echo '/dev/xvdf /data/fusionpbx xfs defaults,nofail 0 2' >> /etc/fstab
+          mount -a
+
+          # Create directory structure
+          mkdir -p /data/fusionpbx/{recordings,logs,backup}
+          chown -R 1000:1000 /data/fusionpbx
+
+          # Create app directory
+          mkdir -p /opt/fusionpbx
+
+          # Set environment variable for External IP
+          EXTERNAL_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+          echo "EXTERNAL_SIP_IP=$EXTERNAL_IP" >> /etc/environment
+          echo "EXTERNAL_RTP_IP=$EXTERNAL_IP" >> /etc/environment
+
+          # Install CloudWatch agent
+          yum install -y amazon-cloudwatch-agent
+
+          # Create CloudWatch agent config
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json << 'CWCONFIG'
+          {
+            "logs": {
+              "logs_collected": {
+                "files": {
+                  "collect_list": [
+                    {
+                      "file_path": "/data/fusionpbx/logs/**/*.log",
+                      "log_group_name": "/fusionpbx/${EnvironmentName}/application",
+                      "log_stream_name": "{instance_id}"
+                    },
+                    {
+                      "file_path": "/var/log/docker/*.log",
+                      "log_group_name": "/fusionpbx/${EnvironmentName}/docker",
+                      "log_stream_name": "{instance_id}"
+                    }
+                  ]
+                }
+              }
+            },
+            "metrics": {
+              "metrics_collected": {
+                "cpu": {"measurement": ["cpu_usage_active"]},
+                "disk": {"measurement": ["disk_used_percent"]},
+                "mem": {"measurement": ["mem_used_percent"]}
+              }
+            }
+          }
+          CWCONFIG
+
+          # Start CloudWatch agent
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+            -a fetch-config -m ec2 -s \
+            -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+
+          echo "=== FusionPBX EC2 Setup Completed ==="
+
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-fusionpbx-server'
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Application
+          Value: FusionPBX
+
+  # Associate Elastic IP
+  EIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref EC2Instance
+      EIP: !Ref ElasticIP
+
+Outputs:
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref EC2Instance
+    Export:
+      Name: !Sub '${EnvironmentName}-FusionPBX-InstanceId'
+
+  PublicIP:
+    Description: Elastic IP Address
+    Value: !Ref ElasticIP
+    Export:
+      Name: !Sub '${EnvironmentName}-FusionPBX-PublicIP'
+
+  PrivateIP:
+    Description: Private IP Address
+    Value: !GetAtt EC2Instance.PrivateIp
+    Export:
+      Name: !Sub '${EnvironmentName}-FusionPBX-PrivateIP'
+
+  SSHCommand:
+    Description: SSH command to connect
+    Value: !Sub 'ssh -i ${KeyPairName}.pem ec2-user@${ElasticIP}'
+
+  WebUIURL:
+    Description: FusionPBX Web GUI URL
+    Value: !Sub 'http://${ElasticIP}:8081'
+
+  IAMRoleArn:
+    Description: IAM Role ARN
+    Value: !GetAtt EC2Role.Arn
+    Export:
+      Name: !Sub '${EnvironmentName}-FusionPBX-RoleArn'

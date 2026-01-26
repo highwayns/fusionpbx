@@ -1,0 +1,213 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'FusionPBX VoIP Network Infrastructure - VPC, Subnets, and Security Groups'
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name
+
+  VpcCIDR:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR block for VPC
+
+  PublicSubnetCIDR:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR block for public subnet
+
+  AllowedSSHCIDR:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR block allowed for SSH access (restrict in production)
+
+  AllowedVoIPCIDR:
+    Type: String
+    Default: 0.0.0.0/0
+    Description: CIDR block allowed for VoIP access (SIP/RTP)
+
+Resources:
+  # VPC
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-fusionpbx-vpc'
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-fusionpbx-igw'
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  # Public Subnet
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref PublicSubnetCIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-fusionpbx-public-subnet'
+
+  # Route Table
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-fusionpbx-public-rt'
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  # Security Group for FusionPBX EC2
+  FusionPBXSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${EnvironmentName}-fusionpbx-sg'
+      GroupDescription: Security group for FusionPBX VoIP server
+      VpcId: !Ref VPC
+      # Ingress Rules
+      SecurityGroupIngress:
+        # SSH Access
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedSSHCIDR
+          Description: SSH access
+
+        # HTTP/HTTPS for FusionPBX Web GUI
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP for FusionPBX
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS for FusionPBX
+
+        # Custom Web Ports (8081, 8443)
+        - IpProtocol: tcp
+          FromPort: 8081
+          ToPort: 8081
+          CidrIp: 0.0.0.0/0
+          Description: FusionPBX HTTP Alt
+        - IpProtocol: tcp
+          FromPort: 8443
+          ToPort: 8443
+          CidrIp: 0.0.0.0/0
+          Description: FusionPBX HTTPS Alt
+
+        # SIP Signaling (UDP and TCP)
+        - IpProtocol: udp
+          FromPort: 5060
+          ToPort: 5060
+          CidrIp: !Ref AllowedVoIPCIDR
+          Description: SIP UDP
+        - IpProtocol: tcp
+          FromPort: 5060
+          ToPort: 5060
+          CidrIp: !Ref AllowedVoIPCIDR
+          Description: SIP TCP
+        - IpProtocol: udp
+          FromPort: 5080
+          ToPort: 5080
+          CidrIp: !Ref AllowedVoIPCIDR
+          Description: SIP External UDP
+        - IpProtocol: tcp
+          FromPort: 5080
+          ToPort: 5080
+          CidrIp: !Ref AllowedVoIPCIDR
+          Description: SIP External TCP
+
+        # RTP Media Ports
+        - IpProtocol: udp
+          FromPort: 20000
+          ToPort: 20100
+          CidrIp: !Ref AllowedVoIPCIDR
+          Description: RTP Media
+
+        # FreeSWITCH ESL (internal only in production)
+        - IpProtocol: tcp
+          FromPort: 8021
+          ToPort: 8021
+          CidrIp: !Ref AllowedSSHCIDR
+          Description: FreeSWITCH ESL
+
+        # voice-gateway WebSocket
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: !Ref AllowedSSHCIDR
+          Description: voice-gateway WebSocket
+
+      # Egress - Allow all outbound
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound
+
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-fusionpbx-sg'
+
+Outputs:
+  VpcId:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub '${EnvironmentName}-FusionPBX-VpcId'
+
+  PublicSubnetId:
+    Description: Public Subnet ID
+    Value: !Ref PublicSubnet
+    Export:
+      Name: !Sub '${EnvironmentName}-FusionPBX-PublicSubnetId'
+
+  SecurityGroupId:
+    Description: FusionPBX Security Group ID
+    Value: !Ref FusionPBXSecurityGroup
+    Export:
+      Name: !Sub '${EnvironmentName}-FusionPBX-SecurityGroupId'
+
+  VpcCIDR:
+    Description: VPC CIDR Block
+    Value: !Ref VpcCIDR
+    Export:
+      Name: !Sub '${EnvironmentName}-FusionPBX-VpcCIDR'
