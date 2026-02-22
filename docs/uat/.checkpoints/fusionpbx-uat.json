@@ -1,0 +1,56 @@
+{
+  "run_id": "fusionpbx-uat",
+  "project": "FusionPBX",
+  "date": "2026-02-22",
+  "steps": [
+    {
+      "id": "step_0",
+      "status": "completed",
+      "description": "Understand scope"
+    },
+    {
+      "id": "step_1",
+      "status": "completed",
+      "description": "Extract implementation details"
+    },
+    {
+      "id": "step_2",
+      "status": "completed",
+      "description": "UAT strategy"
+    },
+    {
+      "id": "step_3",
+      "status": "completed",
+      "description": "UAT test specification"
+    },
+    {
+      "id": "step_4",
+      "status": "completed",
+      "description": "Evidence collection"
+    },
+    {
+      "id": "step_5",
+      "status": "completed",
+      "description": "Result template"
+    },
+    {
+      "id": "step_6",
+      "status": "completed",
+      "description": "Validation"
+    },
+    {
+      "id": "step_7",
+      "status": "completed",
+      "description": "Summary"
+    }
+  ],
+  "artifacts": [
+    "docs/uat/feature_list.md",
+    "docs/uat/screen_list.md",
+    "docs/uat/api_list.md",
+    "docs/uat/db_schema.md",
+    "docs/uat/uat_strategy.md",
+    "docs/uat/uat-spec-fusionpbx.md",
+    "docs/uat/uat-result-fusionpbx.md"
+  ]
+}
